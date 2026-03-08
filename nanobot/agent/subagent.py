@@ -155,6 +155,23 @@ class SubagentManager:
                     for tool_call in response.tool_calls:
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
+                        
+                        # Stream the tool execution intent to the user in real-time
+                        from nanobot.bus.events import OutboundMessage
+                        
+                        hint = f"[Subagent] 正在执行: `{tool_call.name}`"
+                        if tool_call.arguments:
+                            val = next(iter(tool_call.arguments.values()), None) if isinstance(tool_call.arguments, dict) else tool_call.arguments
+                            if isinstance(val, str):
+                                hint = f'[Subagent] 正在执行: `{tool_call.name}("{val[:40]}…")`' if len(val) > 40 else f'[Subagent] 正在执行: `{tool_call.name}("{val}")`'
+
+                        await self.bus.publish_outbound(OutboundMessage(
+                            channel=origin["channel"],
+                            chat_id=origin["chat_id"],
+                            content=hint,
+                            metadata={"_progress": True, "_tool_hint": True}
+                        ))
+
                         result = await tools.execute(tool_call.name, tool_call.arguments)
                         messages.append({
                             "role": "tool",
