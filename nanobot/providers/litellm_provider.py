@@ -270,8 +270,15 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
 
         try:
-            response = await acompletion(**kwargs)
-            return self._parse_response(response)
+            # Check if streaming is enabled
+            stream = kwargs.pop('stream', False)
+            if stream:
+                # Return async iterator for streaming
+                return acompletion(**kwargs, stream=True)
+            else:
+                # Non-streaming request
+                response = await acompletion(**kwargs)
+                return self._parse_response(response)
         except Exception as e:
             # Return error as content for graceful handling
             return LLMResponse(
