@@ -237,6 +237,7 @@ class AgentsConfig(Base):
     """Agent configuration."""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+    instances: dict[str, AgentDefaults] = Field(default_factory=dict)
 
 
 class ProviderConfig(Base):
