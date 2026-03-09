@@ -1051,11 +1051,6 @@ def _login_github_copilot() -> None:
 # ============================================================================
 # Agent Management Commands
 # ============================================================================
-
-agent_mgmt_app = typer.Typer(help="Manage agents")
-app.add_typer(agent_mgmt_app, name="agent-create")
-
-
 @app.command("agent-create")
 def agent_create(
     name: str = typer.Argument(..., help="Name of the new agent (e.g. 'coder', 'researcher')"),
