@@ -68,7 +68,7 @@ class AgentLoop:
         peer_buses: dict[str, MessageBus] | None = None,
         peer_profiles: dict[str, str] | None = None,
         allowed_agent_delegates: list[str] | None = None,
-        self_agent_name: str = "primary",
+        self_agent_name: str = "main",
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus

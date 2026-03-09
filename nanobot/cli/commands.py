@@ -171,9 +171,11 @@ def main(
 def onboard():
     """Initialize nanobot configuration and workspace."""
     from nanobot.config.loader import get_config_path, load_config, save_config
-    from nanobot.config.schema import Config
+    from nanobot.config.schema import AgentDefaults, Config
 
     config_path = get_config_path()
+    main_workspace = str(Path.home() / ".nanobot" / "workspace" / "main")
+    main_profile = str(Path.home() / ".nanobot" / "workspace" / "main" / "PROFILE.md")
 
     if config_path.exists():
         console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
@@ -181,31 +183,45 @@ def onboard():
         console.print("  [bold]N[/bold] = refresh config, keeping existing values and adding new fields")
         if typer.confirm("Overwrite?"):
             config = Config()
+            config.agents.instances["main"] = AgentDefaults(
+                workspace=main_workspace,
+                profile=main_profile,
+            )
             save_config(config)
             console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
         else:
             config = load_config()
+            # Ensure at least the 'main' instance exists after refresh
+            if "main" not in config.agents.instances:
+                config.agents.instances["main"] = AgentDefaults(
+                    workspace=main_workspace,
+                    profile=main_profile,
+                )
             save_config(config)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
-        save_config(Config())
+        config = Config()
+        config.agents.instances["main"] = AgentDefaults(
+            workspace=main_workspace,
+            profile=main_profile,
+        )
+        save_config(config)
         console.print(f"[green]✓[/green] Created config at {config_path}")
 
-    # Create workspace
-    workspace = get_workspace_path()
-
-    if not workspace.exists():
-        workspace.mkdir(parents=True, exist_ok=True)
-        console.print(f"[green]✓[/green] Created workspace at {workspace}")
-
+    # Sync templates to the main workspace
+    workspace = Path(main_workspace)
+    workspace.mkdir(parents=True, exist_ok=True)
     sync_workspace_templates(workspace)
+    console.print(f"[green]✓[/green] Initialized workspace at {workspace}")
 
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
     console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
     console.print("  2. Chat: [cyan]nanobot agent -m \"Hello!\"[/cyan]")
+    console.print("  3. New agent: [cyan]nanobot agent-create <name>[/cyan]")
     console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]")
+
 
 
 
@@ -315,7 +331,7 @@ def gateway(
     
     instances = config.agents.instances
     if not instances:
-        instances = {"primary": config.agents.defaults}
+        instances = {"main": config.agents.defaults}
 
     main_bus = MessageBus()
     provider = _make_provider(config)
@@ -331,7 +347,7 @@ def gateway(
     all_buses = {}
     peer_profiles = {}
     for idx, (instance_name, cfg) in enumerate(instances.items()):
-        is_primary = (instance_name == "primary") or (idx == 0 and not instances.get("primary"))
+        is_primary = (instance_name == "main") or (idx == 0 and not instances.get("main"))
         all_buses[instance_name] = main_bus if is_primary else MessageBus()
         if cfg.profile:
             profile_path = Path(cfg.profile).expanduser()
@@ -1036,6 +1052,55 @@ def _login_github_copilot() -> None:
     except Exception as e:
         console.print(f"[red]Authentication error: {e}[/red]")
         raise typer.Exit(1)
+
+
+# ============================================================================
+# Agent Management Commands
+# ============================================================================
+
+agent_mgmt_app = typer.Typer(help="Manage agents")
+app.add_typer(agent_mgmt_app, name="agent-create")
+
+
+@app.command("agent-create")
+def agent_create(
+    name: str = typer.Argument(..., help="Name of the new agent (e.g. 'coder', 'researcher')"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """Create a new agent, initialize its workspace, and register it in config.json."""
+    from nanobot.config.loader import get_config_path, load_config, save_config
+    from nanobot.config.schema import AgentDefaults
+
+    cfg_path = Path(config_path) if config_path else get_config_path()
+    config = load_config(cfg_path) if cfg_path.exists() else None
+
+    if config is None:
+        console.print("[red]Config not found. Run [bold]nanobot onboard[/bold] first.[/red]")
+        raise typer.Exit(1)
+
+    if name in config.agents.instances:
+        console.print(f"[yellow]Agent [bold]{name}[/bold] already exists in config.[/yellow]")
+        raise typer.Exit(1)
+
+    agent_workspace = Path.home() / ".nanobot" / "workspace" / name
+    agent_profile = agent_workspace / "PROFILE.md"
+
+    config.agents.instances[name] = AgentDefaults(
+        workspace=str(agent_workspace),
+        profile=str(agent_profile),
+    )
+    save_config(config)
+    console.print(f"[green]✓[/green] Registered agent [bold]{name}[/bold] in config")
+
+    agent_workspace.mkdir(parents=True, exist_ok=True)
+    sync_workspace_templates(agent_workspace)
+    console.print(f"[green]✓[/green] Initialized workspace at {agent_workspace}")
+
+    console.print(f"\n[bold]{__logo__} Agent [cyan]{name}[/cyan] is ready![/bold]")
+    console.print("\nNext steps:")
+    console.print(f"  1. Edit [cyan]{agent_profile}[/cyan] to describe the agent's capabilities")
+    console.print(f"  2. Set [cyan]allowed_agent_delegates[/cyan] in config.json to control which agents can call [bold]{name}[/bold]")
+    console.print("  3. Restart [cyan]nanobot gateway[/cyan] to activate the new agent")
 
 
 if __name__ == "__main__":
