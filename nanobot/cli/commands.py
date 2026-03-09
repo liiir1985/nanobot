@@ -397,7 +397,7 @@ def gateway(
             
         cron_store_path = instance_workspace / "cron" / "jobs.json"
         cron_store_path.parent.mkdir(parents=True, exist_ok=True)
-        cron = CronService(cron_store_path)
+        cron = CronService(cron_store_path, agent_name=instance_name)
         
         agent = AgentLoop(
             bus=bus,
@@ -505,6 +505,7 @@ def gateway(
             on_notify=on_hb_notify,
             interval_s=hb_cfg.interval_s,
             enabled=hb_cfg.enabled,
+            agent_name=instance_name,
         )
         
         agents.append(agent)

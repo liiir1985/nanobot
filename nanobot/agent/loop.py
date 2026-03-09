@@ -243,7 +243,7 @@ class AgentLoop:
                 for tool_call in response.tool_calls:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
+                    logger.info("[{}] Tool call: {}({})", self.self_agent_name, tool_call.name, args_str[:200])
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
@@ -276,7 +276,7 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         await self._connect_mcp()
-        logger.info("Agent loop started")
+        logger.info("[{}] Agent loop started", self.self_agent_name)
 
         while self._running:
             try:
@@ -320,7 +320,7 @@ class AgentLoop:
                         content="", metadata=msg.metadata or {},
                     ))
             except asyncio.CancelledError:
-                logger.info("Task cancelled for session {}", msg.session_key)
+                logger.info("[{}] Task cancelled for session {}", self.self_agent_name, msg.session_key)
                 raise
             except Exception:
                 logger.exception("Error processing message for session {}", msg.session_key)
@@ -341,7 +341,7 @@ class AgentLoop:
     def stop(self) -> None:
         """Stop the agent loop."""
         self._running = False
-        logger.info("Agent loop stopping")
+        logger.info("[{}] Agent loop stopping", self.self_agent_name)
 
     async def _process_message(
         self,
@@ -352,7 +352,9 @@ class AgentLoop:
         """Process a single inbound message and return the response."""
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
-            logger.info("Processing system message from {}", msg.sender_id)
+            # sender_id is 'peer:engineer' or 'peer_agent' — extract actual name
+            peer_name = msg.sender_id.split(":", 1)[-1] if ":" in msg.sender_id else msg.sender_id
+            logger.info("[{}] Processing system message from agent '{}'", self.self_agent_name, peer_name)
             # chat_id is "channel:chat_id" - the original user session that triggered the delegation
             if ":" in msg.chat_id:
                 channel, chat_id = msg.chat_id.split(":", 1)
@@ -384,7 +386,7 @@ class AgentLoop:
             return None
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
-        logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
+        logger.info("[{}] Processing message from {}:{}: {}", self.self_agent_name, msg.channel, msg.sender_id, preview)
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
@@ -476,7 +478,7 @@ class AgentLoop:
             return None
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
-        logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
+        logger.info("[{}] Response to {}:{}: {}", self.self_agent_name, msg.channel, msg.sender_id, preview)
         return OutboundMessage(
             channel=msg.channel, chat_id=msg.chat_id, content=final_content,
             metadata=msg.metadata or {},
