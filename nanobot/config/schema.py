@@ -234,7 +234,6 @@ class AgentDefaults(Base):
     allowed_agent_delegates: list[str] = Field(
         default_factory=lambda: ["*"]
     )  # List of peer agent names this agent is allowed to delegate to. ["*"] allows all.
-    profile: str | None = None  # File path to a Markdown file describing this agent's capabilities.
 
 
 class AgentsConfig(Base):

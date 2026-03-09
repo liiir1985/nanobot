@@ -175,7 +175,6 @@ def onboard():
 
     config_path = get_config_path()
     main_workspace = str(Path.home() / ".nanobot" / "workspace" / "main")
-    main_profile = str(Path.home() / ".nanobot" / "workspace" / "main" / "PROFILE.md")
 
     if config_path.exists():
         console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
@@ -185,7 +184,6 @@ def onboard():
             config = Config()
             config.agents.instances["main"] = AgentDefaults(
                 workspace=main_workspace,
-                profile=main_profile,
             )
             save_config(config)
             console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
@@ -195,7 +193,6 @@ def onboard():
             if "main" not in config.agents.instances:
                 config.agents.instances["main"] = AgentDefaults(
                     workspace=main_workspace,
-                    profile=main_profile,
                 )
             save_config(config)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
@@ -203,7 +200,6 @@ def onboard():
         config = Config()
         config.agents.instances["main"] = AgentDefaults(
             workspace=main_workspace,
-            profile=main_profile,
         )
         save_config(config)
         console.print(f"[green]✓[/green] Created config at {config_path}")
@@ -344,17 +340,15 @@ def gateway(
     channels = ChannelManager(config, main_bus)
     
     # Pre-allocate message buses and parse profiles for all instances
+    # Profile is auto-derived from <workspace>/PROFILE.md (convention over config)
     all_buses = {}
     peer_profiles = {}
     for idx, (instance_name, cfg) in enumerate(instances.items()):
         is_primary = (instance_name == "main") or (idx == 0 and not instances.get("main"))
         all_buses[instance_name] = main_bus if is_primary else MessageBus()
-        if cfg.profile:
-            profile_path = Path(cfg.profile).expanduser()
-            if profile_path.exists():
-                peer_profiles[instance_name] = profile_path.read_text(encoding="utf-8")
-            else:
-                peer_profiles[instance_name] = f"Profile file not found at {profile_path}"
+        profile_path = Path(cfg.workspace).expanduser() / "PROFILE.md"
+        if profile_path.exists():
+            peer_profiles[instance_name] = profile_path.read_text(encoding="utf-8")
         else:
             peer_profiles[instance_name] = "No description available."
 
@@ -1087,7 +1081,6 @@ def agent_create(
 
     config.agents.instances[name] = AgentDefaults(
         workspace=str(agent_workspace),
-        profile=str(agent_profile),
     )
     save_config(config)
     console.print(f"[green]✓[/green] Registered agent [bold]{name}[/bold] in config")
@@ -1098,7 +1091,7 @@ def agent_create(
 
     console.print(f"\n[bold]{__logo__} Agent [cyan]{name}[/cyan] is ready![/bold]")
     console.print("\nNext steps:")
-    console.print(f"  1. Edit [cyan]{agent_profile}[/cyan] to describe the agent's capabilities")
+    console.print(f"  1. Edit [cyan]{agent_workspace / 'PROFILE.md'}[/cyan] to describe the agent's capabilities")
     console.print(f"  2. Set [cyan]allowed_agent_delegates[/cyan] in config.json to control which agents can call [bold]{name}[/bold]")
     console.print("  3. Restart [cyan]nanobot gateway[/cyan] to activate the new agent")
 
