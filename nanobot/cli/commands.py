@@ -7,6 +7,8 @@ import signal
 import sys
 from pathlib import Path
 
+from loguru import logger
+
 # Force UTF-8 encoding for Windows console
 if sys.platform == "win32":
     if sys.stdout.encoding != "utf-8":
@@ -375,17 +377,27 @@ def gateway(
                             msg = await b.consume_outbound()
                             if msg.metadata and msg.metadata.get("delegated_from"):
                                 caller = msg.metadata["delegated_from"]
-                                target_bus = all_buses.get(caller, main_bus)
-                                from nanobot.bus.events import InboundMessage
-                                # Always forward delegated results to delegator's inbound. 
-                                # loop.py will decide whether to trigger a response based on is_final.
-                                await target_bus.publish_inbound(InboundMessage(
-                                    channel="system",
-                                    sender_id=f"peer:{name}",
-                                    chat_id=f"{msg.channel}:{msg.chat_id}",
-                                    content=f"Peer agent '{name}' reports:\n{msg.content}",
-                                    metadata=msg.metadata
-                                ))
+                                task_id = msg.metadata.get("delegate_task_id")
+                                is_final = bool(msg.metadata.get("is_final"))
+                                
+                                # Find the calling agent to resolve the future directly,
+                                # bypassing the message bus to avoid deadlocks.
+                                resolved = False
+                                if task_id:
+                                    # agents exists in the outer scope (defined at line ~420 below, but we need access to it)
+                                    # We can capture it by accessing the global `agents` list created in `main()`.
+                                    for a in agents:
+                                        if a.self_agent_name == caller:
+                                            # Found the delegating agent, try to resolve the tool
+                                            delegate_tool = a.tools.get("agent_delegate")
+                                            if delegate_tool and hasattr(delegate_tool, "resolve_task"):
+                                                await delegate_tool.resolve_task(task_id, is_final, msg.content)
+                                                resolved = True
+                                                break
+                                
+                                if not resolved:
+                                    logger.warning(f"Could not resolve delegated task {task_id} for {caller}")
+                                    
                             elif msg.channel not in _INTERNAL_CHANNELS:
                                 # Forward proactive notifications to main outbound (real channels only)
                                 msg.content = f"[{name}] {msg.content}"

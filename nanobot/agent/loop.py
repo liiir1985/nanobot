@@ -139,12 +139,15 @@ class AgentLoop:
             self.tools.register(CronTool(self.cron_service))
         if getattr(self, "peer_buses", None):
             from nanobot.agent.tools.delegate import AgentDelegateTool
-            self.tools.register(AgentDelegateTool(
+            delegate_tool = AgentDelegateTool(
                 peer_buses=self.peer_buses,
                 allowed_agent_delegates=self.allowed_agent_delegates,
                 peer_profiles=self.peer_profiles,
                 self_agent_name=self.self_agent_name,
-            ))
+                main_bus=self.bus,
+            )
+            self.tools.register(delegate_tool)
+            self.subagents.register_tool(delegate_tool)
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -373,17 +376,7 @@ class AgentLoop:
             session = self.sessions.get_or_create(key)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), msg.metadata)
             
-            is_report_to_me = msg.metadata and msg.metadata.get("delegated_from") == self.self_agent_name
-            is_final = bool(msg.metadata and msg.metadata.get("is_final"))
-            
-            # Record the message content in history for both intermediate and final reports
-            if is_report_to_me:
-                session.messages.append({"role": "user", "content": f"[Observation from agent '{peer_name}']: {msg.content}"})
-                self.sessions.save(session)
-                if not is_final:
-                    return None
-
-            # If it's a new task delegated TO me, or a final report TO me, trigger the response.
+            # This is a task delegated TO me. Trigger the response and reply back to the caller.
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
@@ -397,13 +390,15 @@ class AgentLoop:
             if final_content:
                 meta = msg.metadata.copy() if msg.metadata else {}
                 meta["is_final"] = True
-                reply = OutboundMessage(
+                
+                # We return the response instead of explicitly publishing it, 
+                # allowing the caller (_dispatch) or interceptor (commands.py) to handle it.
+                return OutboundMessage(
                     channel=channel,
                     chat_id=chat_id,
                     content=final_content,
                     metadata=meta,
                 )
-                await self.bus.publish_outbound(reply)
                 
             return None
 

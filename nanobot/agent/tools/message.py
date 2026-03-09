@@ -99,6 +99,10 @@ class MessageTool(Tool):
             return "Error: Message sending not configured"
 
         meta = self._extra_metadata.copy()
+        
+        # Refuse to send direct messages to the user if this is a delegated background task.
+        if meta.get("delegated_from"):
+            return "Error: Do not use the `message` tool for internal/delegated tasks. Simply finish your reasoning and output your final result as a direct text response. The delegator will receive your final response."
         if message_id:
             meta["message_id"] = message_id
 

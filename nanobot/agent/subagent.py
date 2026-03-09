@@ -8,6 +8,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
@@ -49,6 +50,11 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        self._extra_tools: list["Tool"] = []
+
+    def register_tool(self, tool: "Tool") -> None:
+        """Register an extra tool to be available in spawned subagents."""
+        self._extra_tools.append(tool)
 
     async def spawn(
         self,
@@ -108,6 +114,14 @@ class SubagentManager:
             ))
             tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
             tools.register(WebFetchTool(proxy=self.web_proxy))
+            
+            for extra_tool in self._extra_tools:
+                tools.register(extra_tool)
+                
+            # Set context for tools that need it (e.g. AgentDelegateTool)
+            for tool_key, tool_instance in tools._tools.items():
+                if hasattr(tool_instance, "set_context"):
+                    tool_instance.set_context(origin["channel"], origin["chat_id"])
             
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
