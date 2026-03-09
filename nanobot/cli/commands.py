@@ -377,11 +377,14 @@ def gateway(
                                 caller = msg.metadata["delegated_from"]
                                 target_bus = all_buses.get(caller, main_bus)
                                 from nanobot.bus.events import InboundMessage
+                                # Always forward delegated results to delegator's inbound. 
+                                # loop.py will decide whether to trigger a response based on is_final.
                                 await target_bus.publish_inbound(InboundMessage(
                                     channel="system",
                                     sender_id=f"peer:{name}",
-                                    chat_id=msg.chat_id,
-                                    content=f"Peer agent '{name}' finished its task. Result:\n{msg.content}"
+                                    chat_id=f"{msg.channel}:{msg.chat_id}",
+                                    content=f"Peer agent '{name}' reports:\n{msg.content}",
+                                    metadata=msg.metadata
                                 ))
                             elif msg.channel not in _INTERNAL_CHANNELS:
                                 # Forward proactive notifications to main outbound (real channels only)

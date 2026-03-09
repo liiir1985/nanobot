@@ -168,12 +168,21 @@ class AgentLoop:
         finally:
             self._mcp_connecting = False
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def _set_tool_context(
+        self, 
+        channel: str, 
+        chat_id: str, 
+        message_id: str | None = None,
+        extra_metadata: dict[str, Any] | None = None
+    ) -> None:
         """Update context for all tools that need routing info."""
         for name in ("message", "spawn", "cron", "agent_delegate"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
-                    tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+                    if name == "message":
+                        tool.set_context(channel, chat_id, message_id, extra_metadata)
+                    else:
+                        tool.set_context(channel, chat_id)
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -362,27 +371,40 @@ class AgentLoop:
                 channel, chat_id = "cli", msg.chat_id
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
-            # Inject the peer result as a user-role observation into history,
-            # then let the agent continue the original conversation.
+            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), msg.metadata)
+            
+            is_report_to_me = msg.metadata and msg.metadata.get("delegated_from") == self.self_agent_name
+            is_final = bool(msg.metadata and msg.metadata.get("is_final"))
+            
+            # Record the message content in history for both intermediate and final reports
+            if is_report_to_me:
+                session.messages.append({"role": "user", "content": f"[Observation from agent '{peer_name}']: {msg.content}"})
+                self.sessions.save(session)
+                if not is_final:
+                    return None
+
+            # If it's a new task delegated TO me, or a final report TO me, trigger the response.
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
+            
             final_content, _, all_msgs = await self._run_agent_loop(messages)
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
-            # Publish the resulting response back through the bus so the channel
-            # manager can deliver it to the user normally.
+            
             if final_content:
+                meta = msg.metadata.copy() if msg.metadata else {}
+                meta["is_final"] = True
                 reply = OutboundMessage(
                     channel=channel,
                     chat_id=chat_id,
                     content=final_content,
-                    metadata=msg.metadata or {},
+                    metadata=meta,
                 )
                 await self.bus.publish_outbound(reply)
+                
             return None
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
@@ -443,7 +465,12 @@ class AgentLoop:
             _task = asyncio.create_task(_consolidate_and_unlock())
             self._consolidation_tasks.add(_task)
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self._set_tool_context(
+            msg.channel, 
+            msg.chat_id, 
+            msg.metadata.get("message_id"),
+            msg.metadata
+        )
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
@@ -475,13 +502,20 @@ class AgentLoop:
         self.sessions.save(session)
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
-            return None
+            if msg.channel != "system":
+                return None
+            if final_content is None:
+                final_content = "Task execution completed."
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info("[{}] Response to {}:{}: {}", self.self_agent_name, msg.channel, msg.sender_id, preview)
+        
+        meta = msg.metadata.copy() if msg.metadata else {}
+        meta["is_final"] = True
+        
         return OutboundMessage(
             channel=msg.channel, chat_id=msg.chat_id, content=final_content,
-            metadata=msg.metadata or {},
+            metadata=meta,
         )
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:

@@ -89,7 +89,7 @@ class AgentDelegateTool(Tool):
         # We specify "delegated_from" metadata so that the peer's forwarder intercepts the reply.
         msg = InboundMessage(
             channel="system",
-            sender_id="peer_agent",
+            sender_id=f"peer:{self._self_name}",
             chat_id=f"{self._origin_channel}:{self._origin_chat_id}",
             content=task,
             metadata={
