@@ -327,28 +327,56 @@ def gateway(
     
     channels = ChannelManager(config, main_bus)
     
-    for idx, (instance_name, agent_config) in enumerate(instances.items()):
+    # Pre-allocate message buses and parse profiles for all instances
+    all_buses = {}
+    peer_profiles = {}
+    for idx, (instance_name, cfg) in enumerate(instances.items()):
         is_primary = (instance_name == "primary") or (idx == 0 and not instances.get("primary"))
+        all_buses[instance_name] = main_bus if is_primary else MessageBus()
+        if cfg.profile:
+            profile_path = Path(cfg.profile).expanduser()
+            if profile_path.exists():
+                peer_profiles[instance_name] = profile_path.read_text(encoding="utf-8")
+            else:
+                peer_profiles[instance_name] = f"Profile file not found at {profile_path}"
+        else:
+            peer_profiles[instance_name] = "No description available."
+
+    for instance_name, agent_config in instances.items():
+        bus = all_buses[instance_name]
+        is_primary = bus is main_bus
+        peer_buses = {k: v for k, v in all_buses.items() if k != instance_name}
+        peer_profiles_filtered = {k: v for k, v in peer_profiles.items() if k != instance_name}
+
         instance_workspace = Path(agent_config.workspace).expanduser()
         sync_workspace_templates(instance_workspace)
         session_manager = SessionManager(instance_workspace)
         
-        if is_primary:
-            bus = main_bus
-        else:
-            bus = MessageBus()
-            def _make_forward(b):
+        if not is_primary:
+            def _make_forward(b, name):
                 async def _forward():
                     while True:
                         try:
                             msg = await b.consume_outbound()
-                            await main_bus.publish_outbound(msg)
+                            if msg.metadata and msg.metadata.get("delegated_from"):
+                                caller = msg.metadata["delegated_from"]
+                                target_bus = all_buses.get(caller, main_bus)
+                                from nanobot.bus.events import InboundMessage
+                                await target_bus.publish_inbound(InboundMessage(
+                                    channel="system",
+                                    sender_id=f"peer:{name}",
+                                    chat_id=msg.chat_id,
+                                    content=f"Peer agent '{name}' finished its task. Result:\n{msg.content}"
+                                ))
+                            else:
+                                msg.content = f"[{name}] {msg.content}"
+                                await main_bus.publish_outbound(msg)
                         except asyncio.CancelledError:
                             break
                         except Exception:
                             await asyncio.sleep(1)
                 return _forward
-            forward_coros.append(_make_forward(bus))
+            forward_coros.append(_make_forward(bus, instance_name))
             
         cron_store_path = instance_workspace / "cron" / "jobs.json"
         cron_store_path.parent.mkdir(parents=True, exist_ok=True)
@@ -372,6 +400,10 @@ def gateway(
             session_manager=session_manager,
             mcp_servers=config.tools.mcp_servers,
             channels_config=config.channels,
+            peer_buses=peer_buses,
+            peer_profiles=peer_profiles_filtered,
+            allowed_agent_delegates=agent_config.allowed_agent_delegates,
+            self_agent_name=instance_name,
         )
         
         def _make_cron_callback(a: AgentLoop, c: CronService):

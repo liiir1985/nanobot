@@ -65,6 +65,10 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        peer_buses: dict[str, MessageBus] | None = None,
+        peer_profiles: dict[str, str] | None = None,
+        allowed_agent_delegates: list[str] | None = None,
+        self_agent_name: str = "primary",
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -81,6 +85,10 @@ class AgentLoop:
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
+        self.peer_buses = peer_buses or {}
+        self.peer_profiles = peer_profiles or {}
+        self.allowed_agent_delegates = allowed_agent_delegates or ["*"]
+        self.self_agent_name = self_agent_name
         self.restrict_to_workspace = restrict_to_workspace
 
         self.context = ContextBuilder(workspace)
@@ -129,6 +137,14 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        if getattr(self, "peer_buses", None):
+            from nanobot.agent.tools.delegate import AgentDelegateTool
+            self.tools.register(AgentDelegateTool(
+                peer_buses=self.peer_buses,
+                allowed_agent_delegates=self.allowed_agent_delegates,
+                peer_profiles=self.peer_profiles,
+                self_agent_name=self.self_agent_name,
+            ))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -154,7 +170,7 @@ class AgentLoop:
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron"):
+        for name in ("message", "spawn", "cron", "agent_delegate"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
@@ -351,7 +367,8 @@ class AgentLoop:
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+                                  content=final_content or "Background task completed.",
+                                  metadata=msg.metadata or {})
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
