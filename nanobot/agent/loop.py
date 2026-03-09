@@ -352,12 +352,17 @@ class AgentLoop:
         """Process a single inbound message and return the response."""
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
-            channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
-                                else ("cli", msg.chat_id))
             logger.info("Processing system message from {}", msg.sender_id)
+            # chat_id is "channel:chat_id" - the original user session that triggered the delegation
+            if ":" in msg.chat_id:
+                channel, chat_id = msg.chat_id.split(":", 1)
+            else:
+                channel, chat_id = "cli", msg.chat_id
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            # Inject the peer result as a user-role observation into history,
+            # then let the agent continue the original conversation.
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
@@ -366,9 +371,17 @@ class AgentLoop:
             final_content, _, all_msgs = await self._run_agent_loop(messages)
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.",
-                                  metadata=msg.metadata or {})
+            # Publish the resulting response back through the bus so the channel
+            # manager can deliver it to the user normally.
+            if final_content:
+                reply = OutboundMessage(
+                    channel=channel,
+                    chat_id=chat_id,
+                    content=final_content,
+                    metadata=msg.metadata or {},
+                )
+                await self.bus.publish_outbound(reply)
+            return None
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)

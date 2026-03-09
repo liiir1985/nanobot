@@ -363,6 +363,11 @@ def gateway(
         session_manager = SessionManager(instance_workspace)
         
         if not is_primary:
+            # "system" is an internal pseudo-channel used for peer-to-peer delegation.
+            # Outbound messages targeting it from secondary agents are internal artifacts
+            # (e.g. from the message tool echoing back during a delegated task) and
+            # should be silently dropped - the real result is routed via delegated_from.
+            _INTERNAL_CHANNELS = {"system"}
             def _make_forward(b, name):
                 async def _forward():
                     while True:
@@ -378,9 +383,11 @@ def gateway(
                                     chat_id=msg.chat_id,
                                     content=f"Peer agent '{name}' finished its task. Result:\n{msg.content}"
                                 ))
-                            else:
+                            elif msg.channel not in _INTERNAL_CHANNELS:
+                                # Forward proactive notifications to main outbound (real channels only)
                                 msg.content = f"[{name}] {msg.content}"
                                 await main_bus.publish_outbound(msg)
+                            # else: silently drop internal pseudo-channel messages
                         except asyncio.CancelledError:
                             break
                         except Exception:
