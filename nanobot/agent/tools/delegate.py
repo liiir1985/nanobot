@@ -54,12 +54,11 @@ class AgentDelegateTool(Tool):
         compiled_manual = "\n---\n".join(manual)
             
         return (
-            "Delegate a complex, multi-step task to a specialized peer agent. "
-            "WARNING: This is a synchronous, blocking operation that may take a long time to complete. "
-            "Use this ONLY when you specifically need the expertise of one of the available peer agents. "
-            "For general, time-consuming background tasks that do not require specialized peers, "
-            "prefer using the 'spawn' tool instead.\n\n"
-            f"Available peers:\n{compiled_manual}"
+            "Delegate a task to an independent peer agent.\n"
+            "This command passes the task to the peer agent and blocks until they finish.\n"
+            "When the peer agent finishes, their results will be returned directly as the output of this tool.\n\n"
+            "AVAILABLE PEER AGENTS (and their capabilities):\n"
+            f"{compiled_manual}"
         )
 
     @property
