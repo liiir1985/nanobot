@@ -230,7 +230,8 @@ def _make_provider(config: Config):
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
-    model = config.agents.defaults.model
+    main_agent_config = config.agents.instances.get("main") or config.agents.defaults
+    model = main_agent_config.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
 
@@ -593,7 +594,11 @@ def agent(
     from nanobot.cron.service import CronService
 
     config = _load_runtime_config(config, workspace)
-    sync_workspace_templates(config.workspace_path)
+    
+    agent_config = config.agents.instances.get("main") or config.agents.defaults
+    instance_workspace = Path(agent_config.workspace).expanduser() if agent_config.workspace else config.workspace_path
+    
+    sync_workspace_templates(instance_workspace)
 
     bus = MessageBus()
     provider = _make_provider(config)
@@ -610,13 +615,13 @@ def agent(
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
-        workspace=config.workspace_path,
-        model=config.agents.defaults.model,
-        temperature=config.agents.defaults.temperature,
-        max_tokens=config.agents.defaults.max_tokens,
-        max_iterations=config.agents.defaults.max_tool_iterations,
-        memory_window=config.agents.defaults.memory_window,
-        reasoning_effort=config.agents.defaults.reasoning_effort,
+        workspace=instance_workspace,
+        model=agent_config.model,
+        temperature=agent_config.temperature,
+        max_tokens=agent_config.max_tokens,
+        max_iterations=agent_config.max_tool_iterations,
+        memory_window=agent_config.memory_window,
+        reasoning_effort=agent_config.reasoning_effort,
         brave_api_key=config.tools.web.search.api_key or None,
         web_proxy=config.tools.web.proxy or None,
         exec_config=config.tools.exec,
@@ -624,6 +629,8 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        allowed_agent_delegates=getattr(agent_config, "allowed_agent_delegates", []),
+        self_agent_name="main",
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
