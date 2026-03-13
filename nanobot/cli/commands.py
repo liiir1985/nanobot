@@ -207,10 +207,11 @@ def onboard():
         console.print(f"[green]✓[/green] Created config at {config_path}")
 
     # Sync templates to the main workspace
-    workspace = Path(main_workspace)
-    workspace.mkdir(parents=True, exist_ok=True)
-    sync_workspace_templates(workspace)
-    console.print(f"[green]✓[/green] Initialized workspace at {workspace}")
+    agent_config = config.agents.instances.get("main") or config.agents.defaults
+    workspace_path = Path(agent_config.workspace).expanduser() if agent_config.workspace else config.workspace_path
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    sync_workspace_templates(workspace_path)
+    console.print(f"[green]✓[/green] Initialized workspace at {workspace_path}")
 
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
@@ -965,7 +966,9 @@ def status():
 
     config_path = get_config_path()
     config = load_config()
-    workspace = config.workspace_path
+    
+    agent_config = config.agents.instances.get("main") or config.agents.defaults
+    workspace = Path(agent_config.workspace).expanduser() if agent_config.workspace else config.workspace_path
 
     console.print(f"{__logo__} nanobot Status\n")
 
@@ -975,7 +978,7 @@ def status():
     if config_path.exists():
         from nanobot.providers.registry import PROVIDERS
 
-        console.print(f"Model: {config.agents.defaults.model}")
+        console.print(f"Model: {agent_config.model}")
 
         # Check API keys from registry
         for spec in PROVIDERS:
