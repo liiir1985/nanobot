@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -236,7 +236,47 @@ class AgentDefaults(Base):
     )  # List of peer agent names this agent is allowed to delegate to. ["*"] allows all.
 
 
+class AgentsConfig(RootModel[dict[str, AgentDefaults]]):
+    """Agent configuration."""
 
+    root: dict[str, AgentDefaults] = Field(default_factory=lambda: {"defaults": AgentDefaults()})
+
+    @property
+    def defaults(self) -> AgentDefaults:
+        if "defaults" not in self.root:
+            self.root["defaults"] = AgentDefaults()
+        return self.root["defaults"]
+
+    @defaults.setter
+    def defaults(self, value: AgentDefaults):
+        self.root["defaults"] = value
+
+    def items(self):
+        return self.root.items()
+
+    def keys(self):
+        return self.root.keys()
+
+    def values(self):
+        return self.root.values()
+
+    def get(self, item: str, default=None):
+        return self.root.get(item, default)
+
+    def __getitem__(self, item: str) -> AgentDefaults:
+        return self.root[item]
+
+    def __setitem__(self, key: str, value: AgentDefaults):
+        self.root[key] = value
+
+    def __contains__(self, item: str) -> bool:
+        return item in self.root
+
+    def __iter__(self):
+        return iter(self.root)
+
+
+class ProviderConfig(Base):
     """LLM provider configuration."""
 
     api_key: str = ""
@@ -329,7 +369,7 @@ class ToolsConfig(Base):
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
-    agents: dict[str, AgentDefaults] = Field(default_factory=lambda: {"defaults": AgentDefaults()})
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
@@ -338,8 +378,7 @@ class Config(BaseSettings):
     @property
     def workspace_path(self) -> Path:
         """Get expanded workspace path."""
-        agent_defaults = self.agents.get("defaults") or AgentDefaults()
-        return Path(agent_defaults.workspace).expanduser()
+        return Path(self.agents.defaults.workspace).expanduser()
 
     def _match_provider(
         self, model: str | None = None
@@ -347,13 +386,12 @@ class Config(BaseSettings):
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from nanobot.providers.registry import PROVIDERS
 
-        agent_defaults = self.agents.get("defaults") or AgentDefaults()
-        forced = agent_defaults.provider
+        forced = self.agents.defaults.provider
         if forced != "auto":
             p = getattr(self.providers, forced, None)
             return (p, forced) if p else (None, None)
 
-        model_lower = (model or agent_defaults.model).lower()
+        model_lower = (model or self.agents.defaults.model).lower()
         model_normalized = model_lower.replace("-", "_")
         model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
         normalized_prefix = model_prefix.replace("-", "_")

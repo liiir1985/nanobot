@@ -176,7 +176,7 @@ def onboard():
     from nanobot.config.schema import AgentDefaults, Config
 
     config_path = get_config_path()
-    main_workspace = str(Path.home() / ".nanobot" / "workspace" / "main")
+    main_workspace = str(Path.home() / ".nanobot" / "workspace" / "defaults")
 
     if config_path.exists():
         console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
@@ -184,14 +184,14 @@ def onboard():
         console.print("  [bold]N[/bold] = refresh config, keeping existing values and adding new fields")
         if typer.confirm("Overwrite?"):
             config = Config()
-            config.agents["defaults"].workspace = main_workspace
+            config.agents.defaults.workspace = main_workspace
             save_config(config)
             console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
         else:
             config = load_config()
             # Ensure defaults has the workspace set after refresh
-            if not config.agents["defaults"].workspace:
-                config.agents["defaults"].workspace = main_workspace
+            if not config.agents.defaults.workspace:
+                config.agents.defaults.workspace = main_workspace
             save_config(config)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
@@ -225,7 +225,7 @@ def _make_provider(config: Config):
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
-    main_agent_config = config.agents.get("defaults") or AgentDefaults()
+    main_agent_config = config.agents.defaults
     model = main_agent_config.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
@@ -289,7 +289,7 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
 
     loaded = load_config(config_path)
     if workspace:
-        config.agents.setdefault("defaults", AgentDefaults()).workspace = workspace
+        config.agents.defaults.workspace = workspace
     return loaded
 
 
@@ -588,7 +588,7 @@ def agent(
 
     config = _load_runtime_config(config, workspace)
     
-    agent_config = config.agents.get("defaults") or AgentDefaults()
+    agent_config = config.agents.defaults
     instance_workspace = Path(agent_config.workspace).expanduser() if agent_config.workspace else config.workspace_path
     
     sync_workspace_templates(instance_workspace)
@@ -1092,14 +1092,14 @@ def agent_create(
         console.print("[red]Config not found. Run [bold]nanobot onboard[/bold] first.[/red]")
         raise typer.Exit(1)
 
-    if name in config.agents.instances:
+    if name in config.agents:
         console.print(f"[yellow]Agent [bold]{name}[/bold] already exists in config.[/yellow]")
         raise typer.Exit(1)
 
     agent_workspace = Path.home() / ".nanobot" / "workspace" / name
     agent_profile = agent_workspace / "PROFILE.md"
 
-    config.agents.instances[name] = AgentDefaults(
+    config.agents[name] = AgentDefaults(
         workspace=str(agent_workspace),
     )
     save_config(config)
