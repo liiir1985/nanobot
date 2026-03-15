@@ -311,14 +311,16 @@ def _onboard_plugins(config_path: Path) -> None:
 
 
 
-def _make_provider(config: Config):
+def _make_provider(config: Config, agent_config: Any = None):
     """Create the appropriate LLM provider from config."""
     from nanobot.providers.base import GenerationSettings
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
-    main_agent_config = config.agents.defaults
-    model = main_agent_config.model
+    if agent_config is None:
+        agent_config = config.agents.defaults
+
+    model = agent_config.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
 
@@ -361,11 +363,10 @@ def _make_provider(config: Config):
             provider_name=provider_name,
         )
 
-    defaults = config.agents.defaults
     provider.generation = GenerationSettings(
-        temperature=defaults.temperature,
-        max_tokens=defaults.max_tokens,
-        reasoning_effort=defaults.reasoning_effort,
+        temperature=agent_config.temperature,
+        max_tokens=agent_config.max_tokens,
+        reasoning_effort=agent_config.reasoning_effort,
     )
     return provider
 
@@ -434,7 +435,6 @@ def gateway(
     instances = config.agents
 
     main_bus = MessageBus()
-    provider = _make_provider(config)
     
     agents = []
     crons = []
@@ -465,6 +465,8 @@ def gateway(
         instance_workspace = Path(agent_config.workspace).expanduser()
         sync_workspace_templates(instance_workspace)
         session_manager = SessionManager(instance_workspace)
+        
+        provider = _make_provider(config, agent_config)
         
         if not is_primary:
             # "system" is an internal pseudo-channel used for peer-to-peer delegation.
@@ -523,7 +525,6 @@ def gateway(
             model=agent_config.model,
             max_iterations=agent_config.max_tool_iterations,
             context_window_tokens=agent_config.context_window_tokens,
-            reasoning_effort=agent_config.reasoning_effort,
             web_search_config=config.tools.web.search,
             web_proxy=config.tools.web.proxy or None,
             exec_config=config.tools.exec,
@@ -538,7 +539,7 @@ def gateway(
             self_agent_name=instance_name,
         )
         
-        def _make_cron_callback(a: AgentLoop, c: CronService):
+        def _make_cron_callback(a: AgentLoop, c: CronService, p):
             async def on_cron_job(job: CronJob) -> str | None:
                 from nanobot.agent.tools.cron import CronTool
                 from nanobot.agent.tools.message import MessageTool
@@ -569,7 +570,7 @@ def gateway(
 
                 if job.payload.deliver and job.payload.to and response:
                     should_notify = await evaluate_response(
-                        response, job.payload.message, provider, agent.model,
+                        response, job.payload.message, p, a.model,
                     )
                     if should_notify:
                         from nanobot.bus.events import OutboundMessage
@@ -581,7 +582,7 @@ def gateway(
                 return response
             return on_cron_job
             
-        cron.on_job = _make_cron_callback(agent, cron)
+        cron.on_job = _make_cron_callback(agent, cron, provider)
         
         def _make_heartbeat_callbacks(a: AgentLoop, sm: SessionManager):
             def _pick_heartbeat_target() -> tuple[str, str]:
@@ -721,7 +722,7 @@ def agent(
     sync_workspace_templates(instance_workspace)
 
     bus = MessageBus()
-    provider = _make_provider(config)
+    provider = _make_provider(config, agent_config)
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"

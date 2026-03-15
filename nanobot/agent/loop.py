@@ -391,7 +391,7 @@ class AgentLoop:
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), msg.metadata)
             
             # This is a task delegated TO me. Trigger the response and reply back to the caller.
-            history = session.get_history(max_messages=self.memory_window)
+            history = session.get_history(max_messages=0)
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
