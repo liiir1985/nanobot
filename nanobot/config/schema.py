@@ -236,14 +236,7 @@ class AgentDefaults(Base):
     )  # List of peer agent names this agent is allowed to delegate to. ["*"] allows all.
 
 
-class AgentsConfig(Base):
-    """Agent configuration."""
 
-    defaults: AgentDefaults = Field(default_factory=AgentDefaults)
-    instances: dict[str, AgentDefaults] = Field(default_factory=dict)
-
-
-class ProviderConfig(Base):
     """LLM provider configuration."""
 
     api_key: str = ""
@@ -336,7 +329,7 @@ class ToolsConfig(Base):
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
-    agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    agents: dict[str, AgentDefaults] = Field(default_factory=lambda: {"defaults": AgentDefaults()})
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
@@ -345,7 +338,8 @@ class Config(BaseSettings):
     @property
     def workspace_path(self) -> Path:
         """Get expanded workspace path."""
-        return Path(self.agents.defaults.workspace).expanduser()
+        agent_defaults = self.agents.get("defaults") or AgentDefaults()
+        return Path(agent_defaults.workspace).expanduser()
 
     def _match_provider(
         self, model: str | None = None
@@ -353,12 +347,13 @@ class Config(BaseSettings):
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from nanobot.providers.registry import PROVIDERS
 
-        forced = self.agents.defaults.provider
+        agent_defaults = self.agents.get("defaults") or AgentDefaults()
+        forced = agent_defaults.provider
         if forced != "auto":
             p = getattr(self.providers, forced, None)
             return (p, forced) if p else (None, None)
 
-        model_lower = (model or self.agents.defaults.model).lower()
+        model_lower = (model or agent_defaults.model).lower()
         model_normalized = model_lower.replace("-", "_")
         model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
         normalized_prefix = model_prefix.replace("-", "_")

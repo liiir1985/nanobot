@@ -184,30 +184,24 @@ def onboard():
         console.print("  [bold]N[/bold] = refresh config, keeping existing values and adding new fields")
         if typer.confirm("Overwrite?"):
             config = Config()
-            config.agents.instances["main"] = AgentDefaults(
-                workspace=main_workspace,
-            )
+            config.agents["defaults"].workspace = main_workspace
             save_config(config)
             console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
         else:
             config = load_config()
-            # Ensure at least the 'main' instance exists after refresh
-            if "main" not in config.agents.instances:
-                config.agents.instances["main"] = AgentDefaults(
-                    workspace=main_workspace,
-                )
+            # Ensure defaults has the workspace set after refresh
+            if not config.agents["defaults"].workspace:
+                config.agents["defaults"].workspace = main_workspace
             save_config(config)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
         config = Config()
-        config.agents.instances["main"] = AgentDefaults(
-            workspace=main_workspace,
-        )
+        config.agents.defaults.workspace = main_workspace
         save_config(config)
         console.print(f"[green]✓[/green] Created config at {config_path}")
 
     # Sync templates to the main workspace
-    agent_config = config.agents.instances.get("main") or config.agents.defaults
+    agent_config = config.agents.defaults
     workspace_path = Path(agent_config.workspace).expanduser() if agent_config.workspace else config.workspace_path
     workspace_path.mkdir(parents=True, exist_ok=True)
     sync_workspace_templates(workspace_path)
@@ -231,7 +225,7 @@ def _make_provider(config: Config):
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
-    main_agent_config = config.agents.instances.get("main") or config.agents.defaults
+    main_agent_config = config.agents.get("defaults") or AgentDefaults()
     model = main_agent_config.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
@@ -295,7 +289,7 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
 
     loaded = load_config(config_path)
     if workspace:
-        loaded.agents.defaults.workspace = workspace
+        config.agents.setdefault("defaults", AgentDefaults()).workspace = workspace
     return loaded
 
 
@@ -329,9 +323,7 @@ def gateway(
 
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     
-    instances = config.agents.instances
-    if not instances:
-        instances = {"main": config.agents.defaults}
+    instances = config.agents
 
     main_bus = MessageBus()
     provider = _make_provider(config)
@@ -348,7 +340,7 @@ def gateway(
     all_buses = {}
     peer_profiles = {}
     for idx, (instance_name, cfg) in enumerate(instances.items()):
-        is_primary = (instance_name == "main") or (idx == 0 and not instances.get("main"))
+        is_primary = (instance_name == "defaults")
         all_buses[instance_name] = main_bus if is_primary else MessageBus()
         profile_path = Path(cfg.workspace).expanduser() / "PROFILE.md"
         if profile_path.exists():
@@ -596,7 +588,7 @@ def agent(
 
     config = _load_runtime_config(config, workspace)
     
-    agent_config = config.agents.instances.get("main") or config.agents.defaults
+    agent_config = config.agents.get("defaults") or AgentDefaults()
     instance_workspace = Path(agent_config.workspace).expanduser() if agent_config.workspace else config.workspace_path
     
     sync_workspace_templates(instance_workspace)

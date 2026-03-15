@@ -61,11 +61,6 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
     data = config.model_dump(by_alias=True)
 
-    # If instances are defined, omit agents.defaults to keep config clean.
-    # defaults is a backward-compat fallback and is not needed when instances exist.
-    if data.get("agents", {}).get("instances"):
-        data["agents"].pop("defaults", None)
-
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
