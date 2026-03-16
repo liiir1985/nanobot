@@ -2,10 +2,8 @@
 
 import asyncio
 from collections import deque
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-import httpx
 from loguru import logger
 
 from nanobot.bus.events import OutboundMessage
@@ -82,7 +80,6 @@ class QQChannel(BaseChannel):
         self._processed_ids: deque = deque(maxlen=1000)
         self._msg_seq: int = 1  # 消息序列号，避免被 QQ API 去重
         self._chat_type_cache: dict[str, str] = {}
-        self._http: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
         """Start the QQ bot."""
@@ -95,7 +92,6 @@ class QQChannel(BaseChannel):
             return
 
         self._running = True
-        self._http = httpx.AsyncClient(timeout=30.0)
         BotClass = _make_bot_class(self)
         self._client = BotClass()
         logger.info("QQ bot started (C2C & Group supported)")
@@ -120,12 +116,6 @@ class QQChannel(BaseChannel):
                 await self._client.close()
             except Exception:
                 pass
-        if self._http:
-            try:
-                await self._http.aclose()
-            except Exception:
-                pass
-            self._http = None
         logger.info("QQ bot stopped")
 
     async def send(self, msg: OutboundMessage) -> None:
@@ -170,40 +160,8 @@ class QQChannel(BaseChannel):
                 return
             self._processed_ids.append(data.id)
 
-            content = (data.content or "").strip()
-            media_paths = []
-            
-            # Handle attachments (images)
-            if hasattr(data, 'attachments') and data.attachments and self._http:
-                media_dir = Path.home() / ".nanobot" / "media"
-                media_dir.mkdir(parents=True, exist_ok=True)
-                for attach in data.attachments:
-                    url = getattr(attach, 'url', None) or ""
-                    if not url.startswith("http"):
-                        url = f"http://{url}" if url else ""
-                    if not url:
-                        continue
-                    try:
-                        resp = await self._http.get(url)
-                        if resp.is_success:
-                            ext = ".jpg"
-                            if "png" in (resp.headers.get("content-type") or ""):
-                                ext = ".png"
-                            elif "gif" in (resp.headers.get("content-type") or ""):
-                                ext = ".gif"
-                            file_id = getattr(attach, 'id', None) or str(hash(url))
-                            file_path = media_dir / f"{str(file_id)[:16]}{ext}"
-                            file_path.write_bytes(resp.content)
-                            media_paths.append(str(file_path))
-                            logger.debug("Downloaded QQ media to {}", file_path)
-                        else:
-                            logger.warning("Failed to download QQ media {} - status code {}", url, resp.status_code)
-                            content = (content or "") + f"\n[image: download failed from {url}]"
-                    except Exception as e:
-                        logger.error("Error downloading QQ media: {}", e)
-                        content = (content or "") + f"\n[image: download error {e}]"
-            
-            if not content and not media_paths:
+            content = (data.content or "").strip()            
+            if not content:
                 return
 
             if is_group:
@@ -218,9 +176,8 @@ class QQChannel(BaseChannel):
             await self._handle_message(
                 sender_id=user_id,
                 chat_id=chat_id,
-                content=content or "[image]",
+                content=content,
                 metadata={"message_id": data.id},
-                media=media_paths,
             )
         except Exception:
             logger.exception("Error handling QQ message")
