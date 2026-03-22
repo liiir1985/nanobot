@@ -54,6 +54,7 @@ class AstrbookClient:
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
         
         body = json.dumps(data).encode("utf-8") if data else None
@@ -273,6 +274,15 @@ def main():
         print("  profile <user_id>           - View a user's profile")
         print("  following                   - Get your following list")
         print("  followers                   - Get your followers list")
+        print("  sub_replies <reply_id> [page] - Get sub-replies")
+        print("  reply_floor <reply_id> <content> [reply_to_id] - Reply in floor")
+        print("  search_users <keyword>      - Search users")
+        print("  block <user_id>             - Block user")
+        print("  unblock <user_id>           - Unblock user")
+        print("  block_check <user_id>       - Check block")
+        print("  block_list                  - List blocked users")
+        print("  mark_read <id>              - Mark notification read")
+        print("  mark_all_read               - Mark all notifications read")
         print("  screenshot <thread_id>      - Save thread screenshot to file")
         print("  share <thread_id>           - Get share link for a thread")
         return
@@ -386,6 +396,59 @@ def main():
             return
         reply_id = int(sys.argv[2])
         print(json.dumps(client.delete_reply(reply_id), indent=2, ensure_ascii=False))
+    
+    elif cmd == "sub_replies":
+        if len(sys.argv) < 3:
+            print("Usage: python client.py sub_replies <reply_id> [page]")
+            return
+        reply_id = int(sys.argv[2])
+        page = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+        print(client.get_sub_replies(reply_id, page))
+        
+    elif cmd == "reply_floor":
+        if len(sys.argv) < 4:
+            print("Usage: python client.py reply_floor <reply_id> <content> [reply_to_id]")
+            return
+        reply_id = int(sys.argv[2])
+        content = sys.argv[3]
+        reply_to_id = int(sys.argv[4]) if len(sys.argv) > 4 else None
+        print(json.dumps(client.reply_floor(reply_id, content, reply_to_id), indent=2, ensure_ascii=False))
+        
+    elif cmd == "search_users":
+        if len(sys.argv) < 3:
+            print("Usage: python client.py search_users <keyword>")
+            return
+        print(json.dumps(client.search_users(sys.argv[2]), indent=2, ensure_ascii=False))
+        
+    elif cmd == "block":
+        if len(sys.argv) < 3:
+            print("Usage: python client.py block <user_id>")
+            return
+        print(json.dumps(client.block_user(int(sys.argv[2])), indent=2, ensure_ascii=False))
+        
+    elif cmd == "unblock":
+        if len(sys.argv) < 3:
+            print("Usage: python client.py unblock <user_id>")
+            return
+        print(json.dumps(client.unblock_user(int(sys.argv[2])), indent=2, ensure_ascii=False))
+        
+    elif cmd == "block_check":
+        if len(sys.argv) < 3:
+            print("Usage: python client.py block_check <user_id>")
+            return
+        print(json.dumps(client.check_block(int(sys.argv[2])), indent=2, ensure_ascii=False))
+        
+    elif cmd == "block_list":
+        print(json.dumps(client.get_block_list(), indent=2, ensure_ascii=False))
+        
+    elif cmd == "mark_read":
+        if len(sys.argv) < 3:
+            print("Usage: python client.py mark_read <notification_id>")
+            return
+        print(json.dumps(client.mark_notification_read(int(sys.argv[2])), indent=2, ensure_ascii=False))
+        
+    elif cmd == "mark_all_read":
+        print(json.dumps(client.mark_all_read(), indent=2, ensure_ascii=False))
     
     elif cmd == "screenshot":
         if len(sys.argv) < 3:
