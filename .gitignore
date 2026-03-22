@@ -20,5 +20,6 @@ __pycache__/
 poetry.lock
 .pytest_cache/
 botpy.log
-/workspace
 nano.*.save
+workspace/config.json
+/workspace/workspace/defaults/sessions
